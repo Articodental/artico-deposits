@@ -57,41 +57,48 @@ function getMonthLabel(d) { return new Date(d + "T12:00:00").toLocaleDateString(
 
 // ─── Supabase helpers ───
 async function fetchPins() {
-  const { data } = await supabase.from("office_pins").select("*");
-  const pins = {};
-  (data || []).forEach(r => { pins[r.office] = r.pin; });
-  return pins;
+  try {
+    const { data, error } = await supabase.from("office_pins").select("*");
+    if (error) { console.error("Supabase pins error:", error); return {}; }
+    const pins = {};
+    (data || []).forEach(r => { pins[r.office] = r.pin; });
+    return pins;
+  } catch (e) { console.error("Pins fetch error:", e); return {}; }
 }
 async function updatePin(office, newPin) {
   await supabase.from("office_pins").update({ pin: newPin }).eq("office", office);
 }
 async function fetchEntries() {
-  const { data } = await supabase.from("deposits").select("*").order("date", { ascending: false }).order("created_at", { ascending: false });
-  return (data || []).map(r => ({
-    id: r.id,
-    office: r.office,
-    date: r.date,
-    deposits: {
-      insuranceChecks: r.insurance_checks?.toString() || "",
-      mediEftInsurance: r.medi_eft_insurance?.toString() || "",
-      cash: r.cash?.toString() || "",
-      debitCreditCards: r.debit_credit_cards?.toString() || "",
-      careCredit: r.care_credit?.toString() || "",
-      sunbit: r.sunbit?.toString() || "",
-    },
-    grandTotal: parseFloat(r.grand_total || 0),
-    pettyCash: r.petty_cash?.toString() || "",
-    initials: r.staff_name || "",
-    officeSales: r.office_sales?.toString() || "",
-    uploads: r.uploads || [],
-    doctorProd: r.doctor_prod || [],
-    patients: r.patients || {},
-    parsedChecks: r.parsed_checks || [],
-    savedAt: r.created_at,
-  }));
+  try {
+    const { data, error } = await supabase.from("deposits").select("*").order("date", { ascending: false }).order("created_at", { ascending: false });
+    if (error) { console.error("Supabase fetch error:", error); return []; }
+    return (data || []).map(r => ({
+      id: r.id,
+      office: r.office || "",
+      date: r.date || "",
+      deposits: {
+        insuranceChecks: String(r.insurance_checks || ""),
+        mediEftInsurance: String(r.medi_eft_insurance || ""),
+        cash: String(r.cash || ""),
+        debitCreditCards: String(r.debit_credit_cards || ""),
+        careCredit: String(r.care_credit || ""),
+        sunbit: String(r.sunbit || ""),
+      },
+      grandTotal: parseFloat(r.grand_total || 0),
+      pettyCash: String(r.petty_cash || ""),
+      initials: String(r.staff_name || ""),
+      officeSales: String(r.office_sales || ""),
+      uploads: Array.isArray(r.uploads) ? r.uploads : [],
+      doctorProd: Array.isArray(r.doctor_prod) ? r.doctor_prod : [],
+      patients: (r.patients && typeof r.patients === "object" && !Array.isArray(r.patients)) ? r.patients : {},
+      parsedChecks: Array.isArray(r.parsed_checks) ? r.parsed_checks : [],
+      savedAt: r.created_at || "",
+    }));
+  } catch (e) { console.error("Fetch error:", e); return []; }
 }
 async function saveEntry(entry) {
-  const row = {
+  try {
+    const row = {
     office: entry.office,
     date: entry.date,
     insurance_checks: parseFloat(entry.deposits.insuranceChecks || 0),
@@ -109,11 +116,16 @@ async function saveEntry(entry) {
     patients: entry.patients,
     parsed_checks: entry.parsedChecks || [],
   };
-  const { data } = await supabase.from("deposits").insert(row).select();
+  const { data, error } = await supabase.from("deposits").insert(row).select();
+  if (error) console.error("Save error:", error);
   return data?.[0];
+  } catch (e) { console.error("Save error:", e); return null; }
 }
 async function deleteEntryDB(id) {
-  await supabase.from("deposits").delete().eq("id", id);
+  try {
+    const { error } = await supabase.from("deposits").delete().eq("id", id);
+    if (error) console.error("Delete error:", error);
+  } catch (e) { console.error("Delete error:", e); }
 }
 
 // CSV exports
