@@ -450,6 +450,14 @@ function ReportsDashboard({ onLogout }) {
 // ─── Main App ───
 export default function DailyDepositApp() {
   const [auth, setAuth] = useState(null);
+  const handleLogout = () => { setAuth(null); };
+  if (!auth) return <PinScreen onUnlock={setAuth} />;
+  if (auth.master) return <ReportsDashboard onLogout={handleLogout} />;
+  return <OfficeView auth={auth} onLogout={handleLogout} />;
+}
+
+// ─── Office View ───
+function OfficeView({ auth, onLogout }) {
   const [view, setView] = useState("form");
   const [selectedDate, setSelectedDate] = useState(TODAY);
   const [deposits, setDeposits] = useState({});
@@ -469,13 +477,8 @@ export default function DailyDepositApp() {
   const [unlockPinPrompt, setUnlockPinPrompt] = useState(null);
   const [unlockPinValue, setUnlockPinValue] = useState("");
   const [unlockPinError, setUnlockPinError] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const fileRef = useRef(null);
-
-  const handleLogout = () => { setAuth(null); handleClear(); setSelectedDate(TODAY); setView("form"); setSavedEntries([]); };
-
-  if (!auth) return <PinScreen onUnlock={setAuth} />;
-  if (auth.master) return <ReportsDashboard onLogout={handleLogout} />;
 
   const officeName = auth.name;
   const isArtico = auth.brand === "artico";
@@ -489,7 +492,9 @@ export default function DailyDepositApp() {
     setSavedEntries(all.filter(e => e.office === officeName));
     setLoading(false);
   };
-  useEffect(() => { if (auth && !auth.master) loadOfficeEntries(); }, [auth]);
+  useEffect(() => { loadOfficeEntries(); }, []);
+
+  const handleLogout = () => { handleClear(); setSelectedDate(TODAY); setView("form"); setSavedEntries([]); onLogout(); };
 
   const handleSave = async () => {
     const entry = { office: officeName, date: selectedDate, deposits:{...deposits}, grandTotal, pettyCash, initials, uploads:[...uploads], doctorProd:[...doctorProd], officeSales, patients:{...patients}, parsedChecks:[...parsedChecks] };
