@@ -154,84 +154,79 @@ function dl(data, filename) {
   const a = document.createElement("a"); a.href = u; a.download = filename; a.click(); URL.revokeObjectURL(u);
 }
 
-// ─── PDF Parsing ───
-let pdfjsLoaded = false;
-async function loadPdfJs() {
-  if (pdfjsLoaded) return;
-  if (!window.pdfjsLib) {
-    await new Promise((resolve, reject) => {
-      const s = document.createElement("script");
-      s.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
-      s.onload = resolve; s.onerror = reject;
-      document.head.appendChild(s);
-    });
-  }
-  window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-  pdfjsLoaded = true;
+// ─── PDF Parsing via Claude AI Vision ───
+async function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result.split(",")[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
-async function extractPdfText(file) {
-  await loadPdfJs();
-  const buf = await file.arrayBuffer();
-  const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
-  let text = "";
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i);
-    const content = await page.getTextContent();
-    text += content.items.map(item => item.str).join(" ") + "\n";
-  }
-  return text;
-}
-function parseDailyPayments(text) {
-  const t = text.replace(/\s+/g, " ");
-  const result = {};
-  const checksSection = t.match(/Insurance Checks.*?(?=Insurance EFTs)/i);
-  if (checksSection) {
-    const amounts = checksSection[0].match(/[\d,]+\.\d{2}/g);
-    if (amounts && amounts.length > 0) {
-      const last = amounts[amounts.length - 1].replace(/,/g, "");
-      result.insuranceChecks = parseFloat(last).toFixed(2);
-    }
-  }
-  const findTotal = (pattern) => { const m = t.match(pattern); if (m) { const val = m[1].replace(/[,$]/g, ""); return isNaN(parseFloat(val)) ? "" : parseFloat(val).toFixed(2); } return ""; };
-  result.mediEftInsurance = findTotal(/Total Insurance Payments[:\s]*\$?([\d,]+\.\d{2})/i);
-  const cashSection = t.match(/Patient Payments.*?Cash.*?(?=Credit Card)/is);
-  if (cashSection) { const a = cashSection[0].match(/[\d,]+\.\d{2}/g); if (a?.length) result.cash = parseFloat(a[a.length-1].replace(/,/g,"")).toFixed(2); }
-  const ccSection = t.match(/Credit Card.*?(?=SunBit|Sunbit)/is);
-  if (ccSection) { const a = ccSection[0].match(/[\d,]+\.\d{2}/g); if (a?.length) result.debitCreditCards = parseFloat(a[a.length-1].replace(/,/g,"")).toFixed(2); }
-  const sunbitSection = t.match(/Sun[Bb]it.*?(?=CareCredit|Care Credit)/is);
-  if (sunbitSection) { const a = sunbitSection[0].match(/[\d,]+\.\d{2}/g); if (a?.length) result.sunbit = parseFloat(a[a.length-1].replace(/,/g,"")).toFixed(2); }
-  const ccreditSection = t.match(/Care\s?Credit.*?(?=Adit|Total Patient|$)/is);
-  if (ccreditSection) { const a = ccreditSection[0].match(/[\d,]+\.\d{2}/g); if (a?.length) result.careCredit = parseFloat(a[a.length-1].replace(/,/g,"")).toFixed(2); }
 
-  result.checks = [];
-  if (checksSection) {
-    const section = checksSection[0];
-    const dateChunks = section.split(/(?=\d{2}\/\d{2}\/\d{4})/);
-    dateChunks.forEach(chunk => {
-      const dateMatch = chunk.match(/^(\d{2}\/\d{2}\/\d{4})/);
-      if (!dateMatch) return;
-      const amounts = chunk.match(/-?[\d,]+\.\d{2}/g);
-      if (!amounts || amounts.length === 0) return;
-      const amount = amounts[amounts.length - 1].replace(/,/g, "");
-      const rest = chunk.replace(dateMatch[0], "").trim();
-      const withoutAmt = rest.replace(/-?[\d,]+\.\d{2}$/, "").trim();
-      const words = withoutAmt.split(/\s+/);
-      let checkNum = "";
-      for (let i = words.length - 1; i >= 0; i--) {
-        const w = words[i];
-        if (/\d/.test(w) || /^[A-Z]{2,}/.test(w)) {
-          if (i > 0 && /^[A-Z]{2,}$/.test(words[i-1])) checkNum = words[i-1] + " " + w;
-          else checkNum = w;
-          break;
-        }
-      }
-      const parts = withoutAmt.split(/\s{2,}|\t/);
-      let patientName = parts.length >= 2 ? parts[1]?.trim() || "" : "";
-      result.checks.push({ date: dateMatch[1], checkNum: checkNum || "N/A", amount: parseFloat(amount).toFixed(2), patient: patientName, raw: chunk.trim() });
+async function parsePdfWithClaude(file) {
+  const base64Data = await fileToBase64(file);
+  
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 2000,
+      messages: [{
+        role: "user",
+        content: [
+          {
+            type: "document",
+            source: { type: "base64", media_type: "application/pdf", data: base64Data }
+          },
+          {
+            type: "text",
+            text: `Look at this Daily Payments report from a dental office. Extract the section totals and individual check details. Return ONLY a JSON object with no other text, in this exact format:
+{
+  "insuranceChecks": "0.00",
+  "mediEftInsurance": "0.00",
+  "cash": "0.00",
+  "debitCreditCards": "0.00",
+  "careCredit": "0.00",
+  "sunbit": "0.00",
+  "checks": [
+    {"checkNum": "12345", "amount": "100.00", "patient": "Patient Name"}
+  ]
+}
+
+Rules:
+- "insuranceChecks" = the subtotal of the Insurance Checks section (NOT insurance EFTs)
+- "mediEftInsurance" = the "Total Insurance Payments" amount which includes Insurance EFTs and insurance credit cards
+- "cash" = the subtotal of the Cash section under Patient Payments
+- "debitCreditCards" = the subtotal of the Credit Card section under Patient Payments
+- "careCredit" = the subtotal of the CareCredit section
+- "sunbit" = the subtotal of the SunBit section
+- "checks" = individual line items from the Insurance Checks section with check numbers and amounts
+- If a section doesn't exist in the document, use "0.00"
+- Use the section subtotals (bold totals), not individual line items
+- Return ONLY the JSON, no markdown, no backticks, no explanation`
+          }
+        ]
+      }]
+    })
+  });
+
+  const data = await response.json();
+  const text = data.content?.map(c => c.text || "").join("") || "";
+  
+  try {
+    const clean = text.replace(/```json|```/g, "").trim();
+    const parsed = JSON.parse(clean);
+    const hasValues = Object.entries(parsed).some(([k, v]) => {
+      if (k === "checks") return Array.isArray(v) && v.length > 0;
+      return v && v !== "0.00" && v !== "0";
     });
+    return hasValues ? parsed : null;
+  } catch (e) {
+    console.error("Failed to parse Claude response:", text, e);
+    return null;
   }
-  const hasValues = Object.values(result).some(v => { if (Array.isArray(v)) return v.length > 0; return v && v !== "0.00"; });
-  return hasValues ? result : null;
 }
 
 // ─── Doctor Production Editor ───
@@ -514,14 +509,21 @@ function OfficeView({ auth, onLogout }) {
     if (pdfFile) {
       setParseStatus("parsing");
       try {
-        const text = await extractPdfText(pdfFile);
-        const parsed = parseDailyPayments(text);
+        const parsed = await parsePdfWithClaude(pdfFile);
         if (parsed) {
-          setDeposits(prev => ({ ...prev, insuranceChecks: parsed.insuranceChecks||prev.insuranceChecks||"", mediEftInsurance: parsed.mediEftInsurance||prev.mediEftInsurance||"", cash: parsed.cash||prev.cash||"", debitCreditCards: parsed.debitCreditCards||prev.debitCreditCards||"", careCredit: parsed.careCredit||prev.careCredit||"", sunbit: parsed.sunbit||prev.sunbit||"" }));
+          setDeposits(prev => ({
+            ...prev,
+            insuranceChecks: parsed.insuranceChecks || prev.insuranceChecks || "",
+            mediEftInsurance: parsed.mediEftInsurance || prev.mediEftInsurance || "",
+            cash: parsed.cash || prev.cash || "",
+            debitCreditCards: parsed.debitCreditCards || prev.debitCreditCards || "",
+            careCredit: parsed.careCredit || prev.careCredit || "",
+            sunbit: parsed.sunbit || prev.sunbit || "",
+          }));
           if (parsed.checks?.length > 0) { setParsedChecks(parsed.checks); setCheckedChecks({}); }
-          setParseStatus("success"); setTimeout(() => setParseStatus(""), 4000);
-        } else { setParseStatus("error"); setTimeout(() => setParseStatus(""), 4000); }
-      } catch (e) { console.error("PDF parse error:", e); setParseStatus("error"); setTimeout(() => setParseStatus(""), 4000); }
+          setParseStatus("success"); setTimeout(() => setParseStatus(""), 5000);
+        } else { setParseStatus("error"); setTimeout(() => setParseStatus(""), 5000); }
+      } catch (e) { console.error("PDF parse error:", e); setParseStatus("error"); setTimeout(() => setParseStatus(""), 5000); }
     }
   };
 
