@@ -154,7 +154,7 @@ function dl(data, filename) {
   const a = document.createElement("a"); a.href = u; a.download = filename; a.click(); URL.revokeObjectURL(u);
 }
 
-// ─── PDF Parsing via Claude AI Vision ───
+// ─── PDF Parsing via Server-Side Claude AI ───
 async function fileToBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -167,66 +167,28 @@ async function fileToBase64(file) {
 async function parsePdfWithClaude(file) {
   const base64Data = await fileToBase64(file);
   
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
+  const response = await fetch("/api/parse-pdf", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 2000,
-      messages: [{
-        role: "user",
-        content: [
-          {
-            type: "document",
-            source: { type: "base64", media_type: "application/pdf", data: base64Data }
-          },
-          {
-            type: "text",
-            text: `Look at this Daily Payments report from a dental office. Extract the section totals and individual check details. Return ONLY a JSON object with no other text, in this exact format:
-{
-  "insuranceChecks": "0.00",
-  "mediEftInsurance": "0.00",
-  "cash": "0.00",
-  "debitCreditCards": "0.00",
-  "careCredit": "0.00",
-  "sunbit": "0.00",
-  "checks": [
-    {"checkNum": "12345", "amount": "100.00", "patient": "Patient Name"}
-  ]
-}
-
-Rules:
-- "insuranceChecks" = the subtotal of the Insurance Checks section (NOT insurance EFTs)
-- "mediEftInsurance" = the "Total Insurance Payments" amount which includes Insurance EFTs and insurance credit cards
-- "cash" = the subtotal of the Cash section under Patient Payments
-- "debitCreditCards" = the subtotal of the Credit Card section under Patient Payments
-- "careCredit" = the subtotal of the CareCredit section
-- "sunbit" = the subtotal of the SunBit section
-- "checks" = individual line items from the Insurance Checks section with check numbers and amounts
-- If a section doesn't exist in the document, use "0.00"
-- Use the section subtotals (bold totals), not individual line items
-- Return ONLY the JSON, no markdown, no backticks, no explanation`
-          }
-        ]
-      }]
-    })
+    body: JSON.stringify({ pdfBase64: base64Data }),
   });
 
-  const data = await response.json();
-  const text = data.content?.map(c => c.text || "").join("") || "";
-  
-  try {
-    const clean = text.replace(/```json|```/g, "").trim();
-    const parsed = JSON.parse(clean);
-    const hasValues = Object.entries(parsed).some(([k, v]) => {
-      if (k === "checks") return Array.isArray(v) && v.length > 0;
-      return v && v !== "0.00" && v !== "0";
-    });
-    return hasValues ? parsed : null;
-  } catch (e) {
-    console.error("Failed to parse Claude response:", text, e);
+  if (!response.ok) {
+    console.error("API error:", response.status);
     return null;
   }
+
+  const parsed = await response.json();
+  if (parsed.error) {
+    console.error("Parse error:", parsed.error);
+    return null;
+  }
+  
+  const hasValues = Object.entries(parsed).some(([k, v]) => {
+    if (k === "checks") return Array.isArray(v) && v.length > 0;
+    return v && v !== "0.00" && v !== "0";
+  });
+  return hasValues ? parsed : null;
 }
 
 // ─── Doctor Production Editor ───
