@@ -23,7 +23,7 @@ const DEPOSIT_FIELDS = [
 
 const DOCTORS = [
   "Dr. Alanbari", "Dr. Milan", "Dr. Rodriguez", "Dr. Rahim",
-  "Dr. Espinoza", "Dr. Bolus", "Dr. Saleh", "Dr. Nguyen", "Dr. El Benni"
+  "Dr. Espinoza", "Dr. Bolus", "Dr. Saleh", "Dr. Nguyen", "Dr. El Benni",
 ];
 
 const PATIENT_FIELDS = [
