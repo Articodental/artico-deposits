@@ -14,7 +14,7 @@ const FUND_LOGO = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAARgAAACMCAIAAAA
 
 const DEPOSIT_FIELDS = [
   { key: "insuranceChecks", label: "Insurance Checks", db: "insurance_checks" },
-  { key: "mediEftInsurance", label: "Medi EFT + Insurance Credit Cards", db: "medi_eft_insurance" },
+  { key: "mediEftInsurance", label: "EFT's", db: "medi_eft_insurance" },
   { key: "cash", label: "Cash", db: "cash" },
   { key: "debitCreditCards", label: "Debit / Credit Cards", db: "debit_credit_cards" },
   { key: "careCredit", label: "Care Credit", db: "care_credit" },
